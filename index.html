@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Key Biscayne House Marker & Eraser</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; z-index: 1; cursor: none; }
+        
+        /* UI PANEL */
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: white;
+            padding: 15px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            width: 140px;
+            text-align: center;
+        }
+
+        .label { font-weight: bold; margin-bottom: 8px; font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+
+        .color-picker { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 10px; 
+            margin-bottom: 10px; 
+        }
+        
+        .color-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            border: 3px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .color-btn.active { border-color: #333; transform: scale(1.05); }
+
+        /* DELETE BUTTON STYLE */
+        #delete-btn {
+            width: 100%;
+            padding: 12px;
+            background: #f0f0f0;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 10px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        #delete-btn.active {
+            background: #ff3b30;
+            color: white;
+            border-color: #b01000;
+        }
+
+        #gps-btn {
+            width: 100%;
+            padding: 10px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        /* CURSOR ELEMENT */
+        #cursor-circle {
+            position: fixed;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            display: none;
+            border: 2px solid rgba(0,0,0,0.3);
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            color: white;
+            font-family: Arial;
+        }
+    </style>
+</head>
+<body>
+
+<div id="cursor-circle"></div>
+
+<div id="ui-panel">
+    <div class="label">Paint Mode</div>
+    <div class="color-picker">
+        <div class="color-btn" id="red" style="background: red;" onclick="setMode('red')"></div>
+        <div class="color-btn" id="green" style="background: green;" onclick="setMode('green')"></div>
+        <div class="color-btn" id="yellow" style="background: yellow;" onclick="setMode('yellow')"></div>
+        <div class="color-btn" id="orange" style="background: orange;" onclick="setMode('orange')"></div>
+    </div>
+
+    <div class="label">Tool</div>
+    <button id="delete-btn" onclick="setMode('delete')">🗑️ ERASER</button>
+    
+    <button id="gps-btn" onclick="toggleGPS()">📍 START GPS</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    const map = L.map('map', { zoomControl: false }).setView([25.6938, -80.1633], 17);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let currentMode = 'red'; // Can be 'red', 'green', 'yellow', 'orange', or 'delete'
+    const cursorEl = document.getElementById('cursor-circle');
+
+    // 1. SET MODE (Color or Delete)
+    function setMode(mode) {
+        currentMode = mode;
+
+        // Reset UI classes
+        document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('delete-btn').classList.remove('active');
+
+        if (mode === 'delete') {
+            document.getElementById('delete-btn').classList.add('active');
+            cursorEl.style.background = 'white';
+            cursorEl.style.color = 'red';
+            cursorEl.innerHTML = '✕'; // Show X in the cursor
+        } else {
+            document.getElementById(mode).classList.add('active');
+            cursorEl.style.background = mode;
+            cursorEl.innerHTML = ''; // Remove X
+        }
+    }
+    setMode('red'); // Default start
+
+    // 2. Cursor Follow
+    window.addEventListener('mousemove', (e) => {
+        cursorEl.style.display = 'block';
+        cursorEl.style.left = e.clientX + 'px';
+        cursorEl.style.top = e.clientY + 'px';
+    });
+
+    // 3. Map Click Logic
+    map.on('click', function(e) {
+        // Only drop a circle if we are NOT in delete mode
+        if (currentMode !== 'delete') {
+            const circle = L.circleMarker(e.latlng, {
+                radius: 12,
+                fillColor: currentMode,
+                color: "#000",
+                weight: 1,
+                fillOpacity: 0.6
+            }).addTo(map);
+
+            // Add a click event TO THE CIRCLE ITSELF
+            circle.on('click', function(ev) {
+                // If the tool is Eraser, remove this circle
+                if (currentMode === 'delete') {
+                    map.removeLayer(this);
+                    // Prevent map click from firing simultaneously
+                    L.DomEvent.stopPropagation(ev);
+                }
+            });
+        }
+    });
+
+    // 4. GPS Tracking Logic
+    let watchId = null;
+    let userMarker = null;
+
+    function toggleGPS() {
+        if (watchId) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+            if(userMarker) map.removeLayer(userMarker);
+            document.getElementById('gps-btn').innerText = "📍 START GPS";
+            document.getElementById('gps-btn').style.background = "#007AFF";
+        } else {
+            document.getElementById('gps-btn').innerText = "⏹ STOP GPS";
+            document.getElementById('gps-btn').style.background = "#ff3b30";
+            
+            watchId = navigator.geolocation.watchPosition((pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                if (!userMarker) {
+                    userMarker = L.circleMarker(latlng, { 
+                        radius: 10, color: 'white', fillColor: '#007AFF', fillOpacity: 1, weight: 3 
+                    }).addTo(map);
+                    map.setView(latlng, 18);
+                } else {
+                    userMarker.setLatLng(latlng);
+                }
+            }, (err) => alert("Please enable location"), { enableHighAccuracy: true });
+        }
+    }
+</script>
+
+</body>
+</html>
