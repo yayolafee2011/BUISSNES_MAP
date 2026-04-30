@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>KB Tracker + Notes</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; background: #f4f4f9; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; z-index: 1; cursor: none; }
+        
+        /* UI PANELS */
+        #filter-container { position: absolute; top: 15px; right: 15px; z-index: 2000; }
+        #filter-toggle-btn { background: white; padding: 12px 20px; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border: none; cursor: pointer; font-size: 14px; }
+        #filter-menu { position: absolute; top: 55px; right: 0; background: white; padding: 10px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); display: none; flex-direction: column; gap: 5px; width: 180px; }
+        .filter-option { padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+        .filter-option.active { background: #333; color: white; }
+
+        #ui-panel { position: absolute; top: 15px; left: 15px; z-index: 1000; background: white; padding: 15px; border-radius: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.2); width: 140px; }
+        .section-label { font-weight: 800; font-size: 10px; color: #999; text-transform: uppercase; margin-bottom: 10px; text-align: center; }
+        .status-btn { display: flex; align-items: center; padding: 10px; border-radius: 12px; border: 2px solid transparent; cursor: pointer; font-size: 12px; font-weight: 600; background: #f8f8f8; margin-bottom: 6px; }
+        .status-btn .dot, .filter-option .dot { width: 10px; height: 10px; border-radius: 50%; }
+        
+        #btn-maybe.active { background: #fffde6; border-color: #f1c40f; }
+        #btn-customer.active { background: #e6ffed; border-color: #28a745; }
+        #btn-noanswer.active { background: #fff5e6; border-color: #fd7e14; }
+        #btn-declined.active { background: #ffe6e6; border-color: #dc3545; }
+
+        /* TOOL BUTTONS */
+        .tool-btn { width: 100%; padding: 10px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-bottom: 6px; font-size: 11px; border: none; transition: 0.2s; }
+        #notes-btn { background: #e3f2fd; color: #007AFF; }
+        #notes-btn.active { background: #007AFF; color: white; }
+        #delete-btn { background: #f0f0f0; color: #666; }
+        #delete-btn.active { background: #333; color: white; }
+        #gps-btn { background: #007AFF; color: white; margin-top: 5px; }
+
+        /* STATS BAR */
+        #stats-bar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 2000; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 25px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 15px; border: 1px solid rgba(0,0,0,0.1); }
+        .stat-box { display: flex; flex-direction: column; align-items: center; min-width: 40px; }
+        .stat-val { font-weight: 800; font-size: 16px; }
+        .stat-lbl { font-size: 8px; text-transform: uppercase; color: #888; }
+        .conversion-box { background: #333; color: white; padding: 5px 12px; border-radius: 30px; }
+
+        /* NOTE MODAL */
+        #note-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10000; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 50px rgba(0,0,0,0.5); width: 280px; }
+        #note-modal textarea { width: 100%; height: 100px; border-radius: 10px; border: 1px solid #ddd; padding: 10px; box-sizing: border-box; font-family: inherit; margin-bottom: 10px; }
+        #note-modal h3 { margin-top: 0; font-size: 16px; }
+        .modal-btns { display: flex; gap: 10px; }
+        .modal-btns button { flex: 1; padding: 10px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
+        #save-note { background: #28a745; color: white; }
+        #close-modal { background: #eee; }
+
+        /* Cursor */
+        #cursor-circle { position: fixed; width: 22px; height: 22px; border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%, -50%); display: none; border: 2px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+<div id="cursor-circle"></div>
+
+<div id="filter-container">
+    <button id="filter-toggle-btn" onclick="toggleFilterMenu()">🔍 Filters</button>
+    <div id="filter-menu">
+        <div class="filter-option active" id="f-all" onclick="applyFilter('all', 'f-all')">Show All</div>
+        <div class="filter-option" id="f-maybe" onclick="applyFilter('#f1c40f', 'f-maybe')"><div class="dot" style="background:#f1c40f"></div> Maybe</div>
+        <div class="filter-option" id="f-customer" onclick="applyFilter('#28a745', 'f-customer')"><div class="dot" style="background:#28a745"></div> Customer</div>
+        <div class="filter-option" id="f-noanswer" onclick="applyFilter('#fd7e14', 'f-noanswer')"><div class="dot" style="background:#fd7e14"></div> No Answer</div>
+        <div class="filter-option" id="f-declined" onclick="applyFilter('#dc3545', 'f-declined')"><div class="dot" style="background:#dc3545"></div> Declined</div>
+    </div>
+</div>
+
+<div id="stats-bar">
+    <div class="stat-box"><span class="stat-val" id="count-maybe" style="color:#f1c40f">0</span><span class="stat-lbl">Maybe</span></div>
+    <div class="stat-box"><span class="stat-val" id="count-noanswer" style="color:#fd7e14">0</span><span class="stat-lbl">No Ans</span></div>
+    <div class="stat-box"><span class="stat-val" id="count-customer" style="color:#28a745">0</span><span class="stat-lbl">Sold</span></div>
+    <div class="stat-box conversion-box"><span class="stat-val" id="conversion-rate">0%</span><span class="stat-lbl">Success</span></div>
+</div>
+
+<div id="ui-panel">
+    <div class="section-label">Marker Type</div>
+    <div class="status-btn" id="btn-maybe" onclick="setPaintMode('maybe', '#f1c40f')"><div class="dot" style="background:#f1c40f; margin-right:8px"></div> Maybe</div>
+    <div class="status-btn" id="btn-customer" onclick="setPaintMode('customer', '#28a745')"><div class="dot" style="background:#28a745; margin-right:8px"></div> Customer</div>
+    <div class="status-btn" id="btn-noanswer" onclick="setPaintMode('noanswer', '#fd7e14')"><div class="dot" style="background:#fd7e14; margin-right:8px"></div> No Answer</div>
+    <div class="status-btn" id="btn-declined" onclick="setPaintMode('declined', '#dc3545')"><div class="dot" style="background:#dc3545; margin-right:8px"></div> Declined</div>
+    
+    <div class="section-label">Actions</div>
+    <button id="notes-btn" class="tool-btn" onclick="setPaintMode('notes', '#007AFF')">📝 Notes Tool</button>
+    <button id="delete-btn" class="tool-btn" onclick="setPaintMode('delete', 'white')">🗑️ Eraser</button>
+    <button id="gps-btn" class="tool-btn" onclick="toggleGPS()">📍 My Location</button>
+</div>
+
+<!-- Note Modal -->
+<div id="note-modal">
+    <h3>House Description</h3>
+    <textarea id="note-input" placeholder="Type info about the owner, yard, or job..."></textarea>
+    <div class="modal-btns">
+        <button id="close-modal" onclick="closeNoteModal()">Cancel</button>
+        <button id="save-note" onclick="saveNote()">Save Info</button>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([25.6938, -80.1633], 17);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+
+    let allMarkersData = JSON.parse(localStorage.getItem('kb-tracker-v5') || "[]");
+    let currentPaintColor = '#f1c40f', currentPaintMode = 'maybe', currentViewFilter = 'all';
+    let activeNoteIndex = null;
+    const cursorEl = document.getElementById('cursor-circle');
+
+    function updateStats() {
+        const counts = { "#f1c40f": 0, "#28a745": 0, "#fd7e14": 0, "#dc3545": 0 };
+        allMarkersData.forEach(d => { if(counts[d.hex] !== undefined) counts[d.hex]++; });
+        document.getElementById('count-maybe').innerText = counts["#f1c40f"];
+        document.getElementById('count-customer').innerText = counts["#28a745"];
+        document.getElementById('count-noanswer').innerText = counts["#fd7e14"];
+        const total = allMarkersData.length;
+        const rate = total === 0 ? 0 : Math.round((counts["#28a745"] / total) * 100);
+        document.getElementById('conversion-rate').innerText = rate + "%";
+    }
+
+    function saveAndRefresh() {
+        localStorage.setItem('kb-tracker-v5', JSON.stringify(allMarkersData));
+        updateStats();
+        map.eachLayer(l => { if (l.options && l.options.isJob) map.removeLayer(l); });
+        allMarkersData.forEach((d, index) => {
+            if (currentViewFilter === 'all' || d.hex === currentViewFilter) {
+                drawMarkerToMap(d, index);
+            }
+        });
+    }
+
+    function drawMarkerToMap(data, index) {
+        const m = L.circleMarker([data.lat, data.lng], { 
+            radius: 12, fillColor: data.hex, color: "#fff", weight: 2, fillOpacity: 0.9, isJob: true 
+        }).addTo(map);
+
+        // Show note in a small popup when just browsing
+        if(data.note) m.bindPopup(`<b>Note:</b><br>${data.note}`);
+
+        m.on('click', function(ev) {
+            L.DomEvent.stopPropagation(ev);
+            if (currentPaintMode === 'delete') {
+                allMarkersData.splice(index, 1);
+                saveAndRefresh();
+            } else if (currentPaintMode === 'notes') {
+                openNoteModal(index);
+            } else {
+                allMarkersData[index].hex = currentPaintColor;
+                saveAndRefresh();
+            }
+        });
+    }
+
+    // MODAL FUNCTIONS
+    function openNoteModal(index) {
+        activeNoteIndex = index;
+        const data = allMarkersData[index];
+        document.getElementById('note-input').value = data.note || "";
+        document.getElementById('note-modal').style.display = 'block';
+    }
+
+    function closeNoteModal() {
+        document.getElementById('note-modal').style.display = 'none';
+        activeNoteIndex = null;
+    }
+
+    function saveNote() {
+        if (activeNoteIndex !== null) {
+            allMarkersData[activeNoteIndex].note = document.getElementById('note-input').value;
+            saveAndRefresh();
+            closeNoteModal();
+        }
+    }
+
+    function setPaintMode(mode, hex) {
+        currentPaintMode = mode; currentPaintColor = hex;
+        document.querySelectorAll('.status-btn, .tool-btn').forEach(el => el.classList.remove('active'));
+        if (mode === 'delete') {
+            document.getElementById('delete-btn').classList.add('active');
+            cursorEl.style.background = 'white'; cursorEl.style.border = '2px dashed red';
+        } else if (mode === 'notes') {
+            document.getElementById('notes-btn').classList.add('active');
+            cursorEl.style.background = 'white'; cursorEl.style.border = '2px solid #007AFF';
+        } else {
+            document.getElementById('btn-' + mode).classList.add('active');
+            cursorEl.style.background = hex; cursorEl.style.border = '2px solid white';
+        }
+    }
+
+    function toggleFilterMenu() {
+        const m = document.getElementById('filter-menu');
+        m.style.display = (m.style.display === 'flex') ? 'none' : 'flex';
+    }
+
+    function applyFilter(hex, id) {
+        currentViewFilter = hex;
+        document.querySelectorAll('.filter-option').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        if(window.innerWidth < 600) document.getElementById('filter-menu').style.display = 'none';
+        saveAndRefresh();
+    }
+
+    map.on('click', e => { 
+        if(currentPaintMode !== 'delete' && currentPaintMode !== 'notes') { 
+            allMarkersData.push({ lat: e.latlng.lat, lng: e.latlng.lng, hex: currentPaintColor, note: "" });
+            saveAndRefresh(); 
+        } 
+    });
+
+    window.addEventListener('mousemove', e => { cursorEl.style.display='block'; cursorEl.style.left=e.clientX+'px'; cursorEl.style.top=e.clientY+'px'; });
+
+    let watchId = null, userMarker = null;
+    function toggleGPS() {
+        if (watchId) {
+            navigator.geolocation.clearWatch(watchId); watchId = null;
+            if(userMarker) map.removeLayer(userMarker);
+            document.getElementById('gps-btn').innerText = "📍 My Location";
+        } else {
+            document.getElementById('gps-btn').innerText = "Stop GPS";
+            watchId = navigator.geolocation.watchPosition(pos => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                if (!userMarker) { userMarker = L.circleMarker(latlng, { radius: 8, color: 'white', fillColor: '#007AFF', fillOpacity: 1, weight: 3 }).addTo(map); map.setView(latlng, 18); }
+                else userMarker.setLatLng(latlng);
+            }, null, { enableHighAccuracy: true });
+        }
+    }
+
+    saveAndRefresh();
+</script>
+
+</body>
+</html>
